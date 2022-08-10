@@ -1,0 +1,448 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+```{r}
+juice <- read.csv('JUICE.csv', header = TRUE,)
+magneto <- read.csv('MAGNETO.csv', header = TRUE)
+stencil <- read.csv('STENCIL.csv', header = TRUE)
+```
+
+```{r}
+#define classes
+CL1 <- juice[juice$strength == 0.4 & juice$italic == 0,]
+CL2 <- magneto[magneto$strength == 0.4 & magneto$italic == 0,]
+CL3 <- stencil[stencil$strength == 0.4 & stencil$italic == 0,]
+```
+
+```{r}
+CL1.l = rep(1,nrow(CL1))
+CL2.l = rep(2,nrow(CL2))
+CL3.l = rep(3,nrow(CL3)) 
+
+DATA.L = c(CL1.l, CL2.l, CL3.l)
+```
+
+
+```{r}
+n1 = nrow(CL1)
+n2 = nrow(CL2)
+n3 = nrow(CL3)
+nrow(CL1)
+nrow(CL2)
+nrow(CL3)
+sum(nrow(CL1),nrow(CL2),nrow(CL3))
+
+DATA = rbind(CL1,CL2,CL3)
+
+Xj = data.matrix(DATA[(4:403)])
+mj = mean(Xj)
+sj = sd(Xj)
+
+SDATA = data.frame(DATA.L, cbind(scale(DATA[4:403])))
+
+length(DATA.L) == nrow(SDATA)
+```
+
+```{r}
+#define correlation matrix of the standardized data
+corr <- cor(SDATA)
+```
+
+```{r}
+#Obtain the ten pairs of features with the largest correlation  
+up=upper.tri(corr)
+out=data.frame(which(up, arr.ind=TRUE), cor=corr[up])
+out=out[!is.na(out$cor),]
+out=out[order(abs(out$cor), decreasing=TRUE),]
+out$row=rownames(corr)[out$row];out$col=colnames(corr)[out$col]
+(largestten=out[1:10,])
+```
+
+
+Generate the training and test data
+```{r}
+# Add y value to SDATA
+SDATA$y <- DATA.L
+
+# Obtain the standardized data for CL1, CL2, and CL3 and name them SETROW1, SETROW2, and SETROW3
+SETROW1 <- SDATA[1:nrow(CL1),]
+SETROW2 <- SDATA[(nrow(CL1)+1):(nrow(CL1)+nrow(CL2)),]
+SETROW3 <- SDATA[((nrow(CL1)+nrow(CL2))+1):nrow(SDATA),]
+
+# Check that SETROW1, SETROW2, and SETROW3 have the same # of rows as SDATA
+sum(nrow(SETROW1), nrow(SETROW2), nrow(SETROW3)) == nrow(SDATA)
+
+# Create the train/test split for CL1
+RNGkind(sample.kind="Rounding")
+set.seed(1)
+trainCL1.index <- sample(1:nrow(CL1), 0.8 * nrow(CL1))
+testCL1.index <- setdiff(1:nrow(CL1), trainCL1.index)
+trainCL1 <- SETROW1[trainCL1.index,]
+testCL1 <- SETROW1[testCL1.index,]
+
+# Create the train/test split for CL2
+set.seed(2)
+trainCL2.index <- sample(1:nrow(CL2), 0.8 * nrow(CL2))
+testCL2.index <- setdiff(1:nrow(CL2), trainCL2.index)
+trainCL2 <- SETROW2[trainCL2.index,]
+testCL2 <- SETROW2[testCL2.index,]
+
+# Create the train/test split for CL3
+set.seed(3)
+trainCL3.index <- sample(1:nrow(CL3), 0.8 * nrow(CL3))
+testCL3.index <- setdiff(1:nrow(CL3), trainCL3.index)
+trainCL3 <- SETROW3[trainCL3.index,]
+testCL3 <- SETROW3[testCL3.index,]
+
+# Combine trainCL1, trainCL2, and trainCL3 into TRAINSET
+TRAINSET <- rbind(trainCL1, trainCL2, trainCL3)
+TESTSET <- rbind(testCL1, testCL2, testCL3)
+
+# Shuffle our training and test data to eliminate potential bias
+# set.seed(42)
+# rows.train <- sample(nrow(TRAINSET))
+# TRAINSET <- TRAINSET[rows.train, ]
+# 
+# set.seed(42)
+# rows.test <- sample(nrow(TESTSET))
+# TESTSET <- TESTSET[rows.test, ]
+
+# Make sure we haven't lost any rows along the way
+sum(nrow(CL1), nrow(CL2), nrow(CL3)) == sum(nrow(TRAINSET), nrow(TESTSET))
+```
+
+# 1.1
+Next we create a KNN classifier to predict CL1, CL2, or CL3 (juice, magneto, or stencil)
+```{r}
+# Create a vector of labels for our training data then remove it from SDATA
+train.labels <- TRAINSET$y
+TRAINSET$y <- NULL
+
+# Create a vector of labels for our test data then remove it from SDATA
+test.labels <- TESTSET$y
+TESTSET$y <- NULL
+```
+
+```{r}
+# Use knn to predict class of test data
+library(class)
+set.seed(100)
+knn.12.test <- knn(TRAINSET, TESTSET, train.labels, k=12)
+knn.12.train <- knn(TRAINSET, TRAINSET, train.labels, k=12)
+
+# Create a confusion matrix for knn.12 with test.labels
+conf.test <- table(knn.12.test, test.labels)
+
+# Create a confusion matrix for knn.12 with test.labels
+conf.train <- table(knn.12.train, train.labels)
+
+# Create a function to measure the accuracy of the model
+accuracy <- function(x){sum(diag(x)/(sum(rowSums(x)))) * 100}
+
+# Check the accuracy of the model on the test data
+accuracy(conf.test)
+
+# Check the accuracy of the model on the training data
+accuracy(conf.train)
+```
+
+
+# 1.2
+Next we try to improve the model by examining the impact of different k values.
+```{r}
+error_rate = c()
+k_values <- c(5, 10, 15, 20, 30, 40, 50, 100)
+
+# Loop through k_values and collect the error rates, set a seed for reproducability
+set.seed(5)
+for (i in k_values) {
+  knn.test <- knn(TRAINSET, TESTSET, train.labels, k = i)
+  conf.matrix <- table(knn.test, test.labels)
+  error_rate <- c(error_rate, 1 - (accuracy(conf.matrix))/100)
+}
+
+# Plot the error rates of each k
+library(ggplot2)
+error_rate.k <- data.frame(k_values, error_rate)
+p <- ggplot(error_rate.k, aes(x = k_values, y=error_rate))+
+  geom_line()+
+  geom_point()+
+  scale_x_continuous(breaks = k_values, labels = k_values)+
+  labs(title="Error Rate vs k Value", y="Error Rate", x="k Value")
+  
+p
+```
+
+From examining the plot we can see that the ideal range of k is (4 < k < 21 ), given the options 5, 10, 15, 20, 30, 40, 50, and 100 for k.
+
+# 1.3
+To try and find a more exact value for k we search further within the range(5, 20).
+```{r}
+error_rate = c()
+k_values <- seq(5, 20)
+
+# Loop through the new k_values and collect the error rates, set a seed for reproducability
+for (i in k_values) {
+  set.seed(5)
+  knn.test <- knn(TRAINSET, TESTSET, train.labels, k = i)
+  conf.matrix <- table(knn.test, test.labels)
+  error_rate <- c(error_rate, 1 - (accuracy(conf.matrix))/100)
+}
+
+# Plot the error rates of each k
+library(ggplot2)
+error_rate.k <- data.frame(k_values, error_rate)
+q <- ggplot(error_rate.k, aes(x = k_values, y=error_rate))+
+  geom_line()+
+  geom_point()+
+  scale_x_continuous(breaks = k_values, labels = k_values)+
+  labs(title="Error Rate vs k Value", y="Error Rate", x="k Value")
+  
+q
+
+kbest = k_values[which(error_rate.k$error_rate == min(error_rate))]
+kbest
+
+
+```
+
+After further exploring the options for k within the range (5,20), 9 has the lowest error rate of the values 5:20 and is our best option. It has an error rate of 0.2063.
+
+# 1.4
+```{r}
+set.seed(5)
+knn.9.test <- knn(TRAINSET, TESTSET, train.labels, k=9)
+knn.9.train <- knn(TRAINSET, TRAINSET, train.labels, k=9)
+
+# Create a confusion matrix for knn.12 with test.labels
+testconf <- table(knn.9.test, test.labels)
+
+# Create a confusion matrix for knn.12 with test.labels
+trainconf <- table(knn.9.train, train.labels)
+
+# Check the accuracy of the model on the test data and examine the confusion matrix
+accuracy(testconf)
+testconf
+
+# Check the accuracy of the model on the training data and examine the confusion matrix
+accuracy(trainconf)
+trainconf
+```
+
+Within the test set, the knn with k = 9 correctly predicted 54 of the CL1 cases as CL1, incorrectly predicted 2 of the CL1 cases as CL2, and incorrectly predicted 1 of the CL1 cases as CL3.
+It correctly predicted 34 of the CL2 cases as CL2, incorrectly predicted 8 of the CL2 cases as CL1, and incorrectly predicted 9 of the CL2 cases as CL3.
+Lastly, it correctly predicted 39 CL3 cases as CL3, incorretly predicted 6 CL3 cases as CL1, and incorrectly predicted 7 CL3 cases as CL2.
+
+Within the training set, the knn with k = 9 correctly predicted 214 of the CL1 cases as CL1, incorrectly predicted 7 of the CL1 cases as CL2, and incorrectly predicted 6 of the CL1 cases as CL3.
+It correctly predicted 150 of the CL2 cases as CL2, incorrectly predicted 23 of the CL2 cases as CL1, and incorrectly predicted 27 of the CL2, cases as CL3.
+Lastly, it correctly predicted 166 CL3 cases as CL2, incorretly predicted 22 CL3 cases as CL1, and incorrectly predicted 20 CL3 cases as CL2.
+
+# 1.5
+```{r}
+# Obtain sample size and accuracy of CL1 predictions
+testconf11_sample.size <- sum(testconf[,1])
+testconf11_accuracy <- testconf[1,1] / testconf11_sample.size
+
+# obtain the radius of the 90% confidence interval for testconf[1,1]
+interval11 <- 1.64 * sqrt((testconf11_accuracy * (1 - testconf11_accuracy)) / testconf11_sample.size)
+interval11
+
+# Obtain sample size and accuracy of CL2 predictions
+testconf22_sample.size <- sum(testconf[,2])
+testconf22_accuracy <- testconf[2,2] / testconf22_sample.size
+
+# obtain the radius of the 90% confidence interval for testconf[2,2]
+interval22 <- 1.64 * sqrt((testconf22_accuracy * (1 - testconf22_accuracy)) / testconf22_sample.size)
+interval22
+
+# Obtain sample size and accuracy of CL2 predictions
+testconf33_sample.size <- sum(testconf[,3])
+testconf33_accuracy <- testconf[3,3] / testconf33_sample.size
+
+# obtain the radius of the 90% confidence interval for testconf[3,3]
+interval33 <- 1.64 * sqrt((testconf33_accuracy * (1 - testconf33_accuracy)) / testconf33_sample.size)
+interval33
+```
+
+The 90% confidence interval for the confusion matrix testconf in position [1, 1] (CL1) is 0.9474 +/- 0.0485. Likewise, the 90% confidence interval for the confusion matrix testconf in position [2, 2] (CL2) is 0.6666 +/- 0.1083 and position [3,3] (CL3) is 0.7500 +/- 0.0985.
+
+# 1.6
+Next, we try to train our model on a subset of our training data that represents a specific 10x10 window (PACK1) within the total 20x20 image. The values of rLcM are L = 0:9 and M = 0:9.
+```{r}
+# PACK1
+PACK1.col <- c()
+
+# Obtain the names of the columns rLcM where L = 0:9 and M = 0:9.
+M = 0
+for (i in names(TRAINSET[, 1:200])) {
+  if (M < 10) {
+     PACK1.col <- c(PACK1.col, i)
+  }
+  
+  if (M == 19) {
+    M = 0
+    next
+  }
+  M = M + 1
+}
+
+# Subset the training data into PACK1.train with just the columns identified within PACK1.col
+PACK1.train <- TRAINSET[, PACK1.col]
+
+# Subset the training data into PACK1.test with just the columns identified within PACK1.col
+PACK1.test <- TESTSET[, PACK1.col]
+
+# Train a knn with k=9 on PACK1
+set.seed(100)
+knn.PACK1 <- knn(PACK1.train, PACK1.test, train.labels, k=9)
+
+# Create a confusion matrix for knn.PACK1
+conftest.PACK1 <- table(knn.PACK1, test.labels)
+
+# Check accuracy of knn.PACK1
+accuracy(conftest.PACK1)
+```
+The accuracy of the knn model with k=9 trained on PACK1 values had an accuracy of 69.375% when predicting PACK1 instances within TESTSET. This performs worse than our overall knn of k=9 trained on TRAINSET predicting TESTSET.
+
+# 1.7
+```{r}
+# PACK2
+PACK2.col <- c()
+
+# Obtain the names of the columns rLcM where L = 0:9 and M = 10:19.
+M = 0
+for (i in names(TRAINSET[, 1:200])) {
+  if (M > 9) {
+     PACK2.col <- c(PACK2.col, i)
+  }
+  if (M == 19) {
+    M = 0
+    next
+  }
+  M = M + 1
+}
+
+# Subset the training data into PACK2.train with just the columns identified within PACK2.col
+PACK2.train <- TRAINSET[, PACK2.col]
+
+# Subset the training data into PACK2.test with just the columns identified within PACK2.col
+PACK2.test <- TESTSET[, PACK2.col]
+
+# Train a knn with k=9 on PACK2
+set.seed(100)
+knn.PACK2 <- knn(PACK2.train, PACK2.test, train.labels, k=9)
+
+# Create a confusion matrix for knn.PACK2
+conftest.PACK2 <- table(knn.PACK2, test.labels)
+```
+
+```{r}
+# PACK3
+PACK3.col <- c()
+
+# Obtain the names of the columns rLcM where L = 10:19 and M = 10:19.
+M = 0
+for (i in names(TRAINSET[,201:400])) {
+  if (M > 9) {
+     PACK3.col <- c(PACK3.col, i)
+  }
+  
+  if (M == 19) {
+    M = 0
+    next
+  }
+  M = M + 1
+}
+
+# Subset the training data into PACK3.train with just the columns identified within PACK3.col
+PACK3.train <- TRAINSET[, PACK3.col]
+
+# Subset the training data into PACK3.test with just the columns identified within PACK3.col
+PACK3.test <- TESTSET[, PACK3.col]
+
+# Train a knn with k=9 on PACK3
+set.seed(100)
+knn.PACK3 <- knn(PACK3.train, PACK3.test, train.labels, k=9)
+
+# Create a confusion matrix for knn.PACK3
+conftest.PACK3 <- table(knn.PACK3, test.labels)
+```
+
+```{r}
+# PACK4
+PACK4.col <- c()
+
+# Obtain the names of the columns rLcM where L = 0:9 and M = 0:9.
+M = 0
+for (i in names(TRAINSET[, 201:400])) {
+  if (M < 10) {
+     PACK4.col <- c(PACK4.col, i)
+  }
+  
+  if (M == 19) {
+    M = 0
+    next
+  }
+  M = M + 1
+}
+
+# Subset the training data into PACK4.train with just the columns identified within PACK4.col
+PACK4.train <- TRAINSET[, PACK4.col]
+
+# Subset the training data into PACK4.test with just the columns identified within PACK4.col
+PACK4.test <- TESTSET[, PACK4.col]
+
+# Train a knn with k=9 on PACK4
+set.seed(100)
+knn.PACK4 <- knn(PACK4.train, PACK4.test, train.labels, k=9)
+
+# Create a confusion matrix for knn.PACK4
+conftest.PACK4 <- table(knn.PACK4, test.labels)
+```
+
+```{r}
+accuracy(conftest.PACK2)
+accuracy(conftest.PACK3)
+accuracy(conftest.PACK4)
+```
+Similarly to PACK1, we can model a knn of k=9 on the other three 10x10 windows. These windows PACK2, PACK3, and PACK4 have the following features: PACK2 has rLcM of L = 0:9 and M = 10:19, PACK3 has rLcM of L = 10:19 and M = 10:19, and PACK4 has rLcM of L = 10:19 and M = 0:9. The classification accuracy achieved by PACK2, PACK3 and PACK4 is 73.13%, 76.25% and 71.25% respectively.
+
+# 1.8
+```{r}
+w1 <- accuracy(conftest.PACK1)/100
+w2 <- accuracy(conftest.PACK2)/100
+w3 <- accuracy(conftest.PACK3)/100
+w4 <- accuracy(conftest.PACK4)/100
+
+weights <- c(w1,w2,w3,w4)
+
+w1n <- w1/sum(weights)
+w2n <- w2/sum(weights)
+w3n <- w3/sum(weights)
+w4n <- w4/sum(weights)
+
+TRAINSET.w <- TRAINSET
+TRAINSET.w[,PACK1.col] <- TRAINSET[,PACK1.col]*w1n
+TRAINSET.w[,PACK2.col] <- TRAINSET[,PACK2.col]*w2n
+TRAINSET.w[,PACK3.col] <- TRAINSET[,PACK3.col]*w3n
+TRAINSET.w[,PACK4.col] <- TRAINSET[,PACK4.col]*w4n
+
+TESTSET.w <- TESTSET
+TESTSET.w[,PACK1.col] <- TESTSET[,PACK1.col]*w1n
+TESTSET.w[,PACK2.col] <- TESTSET[,PACK2.col]*w2n
+TESTSET.w[,PACK3.col] <- TESTSET[,PACK3.col]*w3n
+TESTSET.w[,PACK4.col] <- TESTSET[,PACK4.col]*w4n
+
+set.seed(100)
+knn.weighted <- knn(TRAINSET.w, TESTSET.w, train.labels, k=9)
+
+testconf_weighted <- table(knn.weighted, test.labels)
+
+accuracy(testconf_weighted)
+
+```
+
+
